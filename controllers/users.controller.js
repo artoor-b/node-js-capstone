@@ -1,12 +1,19 @@
 import { Database } from 'sqlite-async';
 import { EXERCISES_ERROR } from '../constants.js';
 import { createExerciseTable, createUsersTable } from './helpers/createTableSql.js';
+import { validateDate } from './helpers/validateDate.js';
+import { createErrorMessageLog } from './helpers/errorMessageTemplate.js';
+
+const dateFormat = /^\d{4}-\d{2}-\d{2}$/; // YYYY-MM-DD
+const integerFormat = /^\d*$/;
 
 export const getOne = async (req, res) => {
-  const { id } = req.query;
+  const { id } = req.params;
 
   try {
-    const db = await Database.open('../test.db');
+    if (id && +id % 1 !== 0) throw new Error('ID should be integer');
+
+    const db = await Database.open('./test.db');
     await createUsersTable(db);
 
     let result;
@@ -17,55 +24,88 @@ export const getOne = async (req, res) => {
       result = await db.all('SELECT * FROM Users ', []);
     }
 
-    if (!result) return res.status(404).json({ status: 404, message: EXERCISES_ERROR.USERNAME_NOT_EXIST });
+    if (!result) throw new Error(EXERCISES_ERROR.USERNAME_NOT_EXIST);
 
     return res.status(200).json(result);
-  } catch {
+  } catch (error) {
+    const { message } = error;
+
+    if (message === EXERCISES_ERROR.USERNAME_NOT_EXIST) {
+      createErrorMessageLog(404, message, '[[getOne]]');
+
+      return res.status(404).json({ status: 404, message })
+    }
+
+    createErrorMessageLog(400, message, '[[getOne]]');
+
     return res.status(400).json({ status: 400, message: EXERCISES_ERROR.DEFAULT_ERROR_MESSAGE });
   }
 }
 
 export const createOne = async (req, res) => {
   const { username } = req.body;
+  const usernamePattern = /^[a-zA-Z0-9]+$/;
+
+  const requiredDataKeys = ['username'];
+  const requestBodyKeys = Object.keys(req.body);
 
   try {
-    const db = await Database.open('../test.db');
+    if (!requestBodyKeys.length) throw new Error(EXERCISES_ERROR.BODY_EMPTY);
+    if (!requestBodyKeys.every(key => requiredDataKeys.includes(key))) throw new Error(EXERCISES_ERROR.BODY_FORBIDDEN_PROPERTIES);
+    if (!requiredDataKeys.every(requiredKey => requestBodyKeys.includes(requiredKey))) throw new Error(EXERCISES_ERROR.BODY_INCOMPLETE);
+
+    if (!username.toString().trim()) throw new Error(EXERCISES_ERROR.USERNAME_EMPTY);
+    if (username.toString().includes(" ")) throw new Error(EXERCISES_ERROR.USERNAME_SPACE_NOT_ALLOWED);
+
+    const db = await Database.open('./test.db');
     await createUsersTable(db);
 
-    if (!username) throw new Error('EMPTY_STRING');
+    if (!usernamePattern.test(username)) throw new Error(EXERCISES_ERROR.USERNAME_NOT_VALID)
 
     const response = await db.run('INSERT INTO Users (username) values ($username)', { $username: username });
     const record = await db.get('SELECT id, username FROM Users WHERE id=$id', { $id: response.lastID });
 
     return res.status(200).json({ ...record });
   } catch (error) {
-    console.log(error)
-    if (error.message === 'EMPTY_STRING') {
-      return res.status(400).json({ status: 400, message: EXERCISES_ERROR.USERNAME_EMPTY_STRING });
+    const { message } = error;
+    createErrorMessageLog(400, message, '[[createOne]]');
+
+    if (error.code === EXERCISES_ERROR.SQL_CONSTRAINT_ERROR && error.message.includes('UNIQUE')) {
+      return res.status(409).json({ status: 409, message: EXERCISES_ERROR.USERNAME_EXIST });
     }
 
-    if (error.code === 'SQLITE_CONSTRAINT' && error.message.includes('UNIQUE')) {
-      return res.status(400).json({ status: 400, message: EXERCISES_ERROR.USERNAME_EXIST });
-    }
-
-    return res.status(400).json({ status: 400, message: EXERCISES_ERROR.DEFAULT_ERROR_MESSAGE });
+    return res.status(400).json({ status: 400, message });
   }
 }
 
 export const createExercise = async (req, res) => {
   const { _id } = req.params;
-  const { description, duration, date } = req.body;
+  const { description, duration, date, ":_id": exId } = req.body;
+
+  console.log(req.body)
+
+  const requiredDataKeys = ['description', 'duration', 'date', ':_id'];
+
+  const convertedDate = date ? new Date(date) : new Date();
 
   try {
-    const exDate = !date ? new Date() : new Date(date);
-    const formattedDate = exDate.toISOString().split('T')[0]; // YYY-MM-DD
+    const requestBodyKeys = Object.keys(req.body);
+    if (!requestBodyKeys.length) throw new Error(EXERCISES_ERROR.BODY_EMPTY);
+    if (!requestBodyKeys.every(key => requiredDataKeys.includes(key))) throw new Error(EXERCISES_ERROR.BODY_FORBIDDEN_PROPERTIES);
+    if (!requiredDataKeys.every(requiredKey => requestBodyKeys.includes(requiredKey))) throw new Error(EXERCISES_ERROR.BODY_INCOMPLETE);
 
+    if (!_id) throw new Error(EXERCISES_ERROR.PARAMETER_ID_REQUIRED);
     if (!description) throw new Error(EXERCISES_ERROR.DESCRIPTION_REQUIRED);
-    if (+description) throw new Error(EXERCISES_ERROR.DESCRIPTION_STRING);
     if (!duration) throw new Error(EXERCISES_ERROR.DURATION_REQUIRED);
-    if (+duration % 1 !== 0) throw new Error(EXERCISES_ERROR.DURATION_INTEGER);
+    if (!dateFormat.test(date)) throw new Error(EXERCISES_ERROR.DATE_FORMAT);
+    date && validateDate(convertedDate, EXERCISES_ERROR.DATE_INVALID);
+    const formattedDate = convertedDate.toISOString().split('T')[0]; // YYYY-MM-DD
 
-    const db = await Database.open('../test.db');
+    if (+_id % 1 !== 0 || !integerFormat.test(_id)) throw new Error(EXERCISES_ERROR.PARAMETER_ID_INTEGER);
+    if (+description) throw new Error(EXERCISES_ERROR.DESCRIPTION_STRING);
+    if (+duration % 1 !== 0 || !integerFormat.test(duration)) throw new Error(EXERCISES_ERROR.DURATION_INTEGER);
+
+    const db = await Database.open('./test.db');
 
     await createExerciseTable(db);
 
@@ -82,7 +122,9 @@ export const createExercise = async (req, res) => {
 
   } catch (error) {
     const { message } = error;
-    console.error(message);
+
+    createErrorMessageLog(400, message, '[[createExercise]]');
+
     res.status(400).json({ status: 400, message });
   }
 }
@@ -91,10 +133,19 @@ export const getLogs = async (req, res) => {
   const { _id } = req.params;
   const { from, to, limit } = req.query;
 
-  console.log(from, to, limit)
+  const fromDate = from && new Date(from);
+  const toDate = to && new Date(to);
 
   try {
-    const db = await Database.open('../test.db');
+    if (from && !dateFormat.test(from)) throw new Error(EXERCISES_ERROR.DATE_FROM_FORMAT);
+    if (to && !dateFormat.test(to)) throw new Error(EXERCISES_ERROR.DATE_TO_FORMAT);
+
+    if (+limit % 1 !== 0 || !integerFormat.test(limit)) throw new Error(EXERCISES_ERROR.PARAMETER_LIMIT_INTEGER);
+
+    from && validateDate(fromDate, EXERCISES_ERROR.DATE_FROM_INVALID);
+    to && validateDate(toDate, EXERCISES_ERROR.DATE_TO_INVALID);
+
+    const db = await Database.open('./test.db');
 
     await createExerciseTable(db);
 
@@ -105,7 +156,6 @@ export const getLogs = async (req, res) => {
     const responseAll = await db.all(query, queryParams);
 
     if (from) {
-      console.log('from', from)
       query += ' AND date >= $from';
       queryParams.$from = from;
     }
@@ -114,6 +164,8 @@ export const getLogs = async (req, res) => {
       query += ' AND date <= $to';
       queryParams.$to = to;
     }
+
+    query += ' ORDER BY Exercises.date ASC'; // sort by dates ascending
 
     if (limit) {
       query += ' LIMIT $limit';
@@ -138,6 +190,8 @@ export const getLogs = async (req, res) => {
     return res.status(200).json(clientResponse);
   } catch (error) {
     const { message } = error;
+    createErrorMessageLog(400, message, '[[getLogs]]');
+
     res.status(400).json({ status: 400, message });
   }
 };
