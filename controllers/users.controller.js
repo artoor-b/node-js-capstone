@@ -140,7 +140,7 @@ export const getLogs = async (req, res) => {
     if (from && !dateFormat.test(from)) throw new Error(EXERCISES_ERROR.DATE_FROM_FORMAT);
     if (to && !dateFormat.test(to)) throw new Error(EXERCISES_ERROR.DATE_TO_FORMAT);
 
-    if (+limit % 1 !== 0 || !integerFormat.test(limit)) throw new Error(EXERCISES_ERROR.PARAMETER_LIMIT_INTEGER);
+    if (limit && (+limit % 1 !== 0 || !integerFormat.test(limit))) throw new Error(EXERCISES_ERROR.PARAMETER_LIMIT_INTEGER);
 
     from && validateDate(fromDate, EXERCISES_ERROR.DATE_FROM_INVALID);
     to && validateDate(toDate, EXERCISES_ERROR.DATE_TO_INVALID);
@@ -151,9 +151,6 @@ export const getLogs = async (req, res) => {
 
     let query = 'SELECT * FROM Exercises WHERE Exercises.userId = $id';
     let queryParams = { $id: _id };
-
-    // get all possible records for specific user
-    const responseAll = await db.all(query, queryParams);
 
     if (from) {
       query += ' AND date >= $from';
@@ -167,15 +164,10 @@ export const getLogs = async (req, res) => {
 
     query += ' ORDER BY Exercises.date ASC'; // sort by dates ascending
 
-    if (limit) {
-      query += ' LIMIT $limit';
-      queryParams.$limit = parseInt(limit);
-    }
-
     // get filtered result
     const responseFiltered = await db.all(query, queryParams);
 
-    const exercisesProjection = responseFiltered.map(({ exerciseId, description, duration, date }) => ({
+    const exercisesProjection = (limit ? responseFiltered.slice(0, limit) : responseFiltered).map(({ exerciseId, description, duration, date }) => ({
       id: exerciseId,
       description,
       duration,
@@ -184,7 +176,7 @@ export const getLogs = async (req, res) => {
 
     const clientResponse = {
       logs: exercisesProjection,
-      count: responseAll.length // store counter of all user records
+      count: responseFiltered.length // store counter of all user records
     };
 
     return res.status(200).json(clientResponse);

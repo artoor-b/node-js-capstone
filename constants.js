@@ -6,7 +6,7 @@ export const EXERCISES_ERROR = {
   DESCRIPTION_REQUIRED: 'description property is required',
   DESCRIPTION_STRING: 'description should be string',
   DURATION_REQUIRED: 'duration property is required',
-  DURATION_INTEGER: 'duration should be integer',
+  DURATION_INTEGER: 'duration should be a positive integer',
 
   USERNAME_NOT_EXIST: 'user with the given ID does not exist',
   USERNAME_NOT_VALID: 'username is not valid: must not contain any special characters',
@@ -23,9 +23,9 @@ export const EXERCISES_ERROR = {
   DATE_TO_FORMAT: `invalid date format for ?to search parameter - must be ${DEFAULT_DATE_FORMAT}`,
 
   PARAMETER_ID_REQUIRED: 'the _id query parameter is required',
-  PARAMETER_ID_INTEGER: 'the _id query parameter should be a valid integer',
+  PARAMETER_ID_INTEGER: 'the _id query parameter should be a valid positive integer',
 
-  PARAMETER_LIMIT_INTEGER: 'limit should be a valid integer',
+  PARAMETER_LIMIT_INTEGER: 'limit should be a valid positive integer',
 
   SQL_CONSTRAINT_ERROR: 'SQLITE_CONSTRAINT',
 
