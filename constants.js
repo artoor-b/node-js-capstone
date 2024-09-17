@@ -14,6 +14,8 @@ export const EXERCISES_ERROR = {
   USERNAME_EMPTY: 'username cannot be empty',
   USERNAME_EXIST: 'username already exist',
 
+  EXERCISE_CREATE: `cannot create exercise - user with given ID does not exist`,
+
   DATE_FORMAT: `invalid date format - must be ${DEFAULT_DATE_FORMAT}`,
   DATE_INVALID: 'invalid date: the provided date does not exist',
 

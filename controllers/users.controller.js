@@ -88,7 +88,15 @@ export const createExercise = async (req, res) => {
 
   const convertedDate = date ? new Date(date) : new Date();
 
+  const userQuery = 'SELECT id, username FROM Users WHERE id=$id';
+  const userQueryParams = { $id: _id };
+
   try {
+    const db = await Database.open('./test.db');
+
+    const userCheck = await db.get(userQuery, userQueryParams);
+    if (!userCheck?.username) throw new Error(EXERCISES_ERROR.EXERCISE_CREATE);
+
     const requestBodyKeys = Object.keys(req.body);
     if (!requestBodyKeys.length) throw new Error(EXERCISES_ERROR.BODY_EMPTY);
     if (!requestBodyKeys.every(key => requiredDataKeys.includes(key))) throw new Error(EXERCISES_ERROR.BODY_FORBIDDEN_PROPERTIES);
@@ -104,8 +112,6 @@ export const createExercise = async (req, res) => {
     if (+_id % 1 !== 0 || !integerFormat.test(_id)) throw new Error(EXERCISES_ERROR.PARAMETER_ID_INTEGER);
     if (+description) throw new Error(EXERCISES_ERROR.DESCRIPTION_STRING);
     if (+duration % 1 !== 0 || !integerFormat.test(duration)) throw new Error(EXERCISES_ERROR.DURATION_INTEGER);
-
-    const db = await Database.open('./test.db');
 
     await createExerciseTable(db);
 
@@ -149,25 +155,32 @@ export const getLogs = async (req, res) => {
 
     await createExerciseTable(db);
 
-    let query = 'SELECT * FROM Exercises WHERE Exercises.userId = $id';
+    let mainQuery = 'SELECT * FROM Exercises WHERE Exercises.userId = $id';
+    let counterQuery = 'SELECT count(*) as counter FROM Exercises WHERE userId = $id';
     let queryParams = { $id: _id };
 
     if (from) {
-      query += ' AND date >= $from';
+      const fromFilter = ' AND date >= $from'
+      mainQuery += fromFilter;
+      counterQuery += fromFilter;
       queryParams.$from = from;
     }
 
     if (to) {
-      query += ' AND date <= $to';
+      const toFilter = ' AND date <= $to';
+      mainQuery += toFilter;
+      counterQuery += toFilter;
       queryParams.$to = to;
     }
 
-    query += ' ORDER BY Exercises.date ASC'; // sort by dates ascending
+    mainQuery += ' ORDER BY Exercises.date ASC'; // sort by dates ascending
+    if (limit) mainQuery += ` LIMIT ${limit}`
 
     // get filtered result
-    const responseFiltered = await db.all(query, queryParams);
+    const responseFiltered = await db.all(mainQuery, queryParams);
+    const logsCounter = await db.get(counterQuery, queryParams);
 
-    const exercisesProjection = (limit ? responseFiltered.slice(0, limit) : responseFiltered).map(({ exerciseId, description, duration, date }) => ({
+    const exercisesProjection = responseFiltered.map(({ exerciseId, description, duration, date }) => ({
       id: exerciseId,
       description,
       duration,
@@ -176,7 +189,7 @@ export const getLogs = async (req, res) => {
 
     const clientResponse = {
       logs: exercisesProjection,
-      count: responseFiltered.length // store counter of all user records
+      count: logsCounter.counter // counter of all user records in range
     };
 
     return res.status(200).json(clientResponse);
